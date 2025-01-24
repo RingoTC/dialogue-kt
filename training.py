@@ -389,7 +389,7 @@ def test_lmkt(args, fold):
 
 # ===== Baselines =====
 
-BASELINE_MODELS = ["dkt-multi", "dkt-sem", "dkt", "akt", "dkvmn", "saint", "simplekt"]
+BASELINE_MODELS = ["dkt-multi", "dkt-sem","dkt-sem-rdrop", "dkt", "akt", "dkvmn", "saint", "simplekt"]
 NON_FLAT_KC_ARCH = ["dkt-multi", "dkt-sem"]
 
 def select_flat_baseline_out_vectors(y: torch.Tensor, batch, shift_turn_end_idxs: bool):
