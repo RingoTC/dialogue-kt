@@ -525,7 +525,7 @@ def train_baseline(args, fold):
 
     # Load KC dictionary and optionally text embeddings
     kc_dict = load_kc_dict(args)
-    if args.model_type == "dkt-sem":
+    if args.model_type == "dkt-sem" || args.model_type == "dkt-sem-rdrop":
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:
@@ -589,7 +589,7 @@ def train_baseline(args, fold):
 def test_baseline(args, fold):
     # Load KC dictionary and optionally text embeddings
     kc_dict = load_kc_dict(args)
-    if args.model_type == "dkt-sem":
+    if args.model_type == "dkt-sem" || args.model_type == "dkt-sem-rdrop":
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:
