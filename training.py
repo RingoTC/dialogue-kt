@@ -99,7 +99,7 @@ def crossval(args, fn):
     if len(avg) > 6:
         metric_names += ["Acc (Final)", "AUC (Final)", "Prec (Final)", "Rec (Final)", "F1 (Final)"]
     results = [
-        f"{metric}: ${avg[idx]:.2f}_{{\\pm {std[idx]:.2f}}}$" for idx, metric in
+        f"{metric}: ${avg[idx]:.2f}''{pm {std[idx]:.2f}}}$" for idx, metric in
         enumerate(metric_names)
     ]
     result_str = "\n".join(results)
@@ -460,8 +460,25 @@ def compute_baseline_loss(model, batch, args):
         y = model(batch)
         return get_baseline_loss(y, batch, args)
     elif args.model_type == "dkt-sem":
-        y = model(batch)
-        return get_baseline_loss(y, batch, args)
+        # Get two forward passes with different dropout masks
+        y1, y2 = model(batch, use_rdrop=True)
+        # Get BCE loss for both passes
+        loss1, corr_probs1 = get_baseline_loss(y1, batch, args)
+        loss2, corr_probs2 = get_baseline_loss(y2, batch, args)
+        # Compute KL divergence loss between the two predictions
+        kl_loss = torch.nn.functional.kl_div(
+            torch.log(y1.view(-1, y1.size(-1))),
+            y2.view(-1, y2.size(-1)),
+            reduction='batchmean'
+        ) + torch.nn.functional.kl_div(
+            torch.log(y2.view(-1, y2.size(-1))),
+            y1.view(-1, y1.size(-1)),
+            reduction='batchmean'
+        )
+        # Combine losses with equal weighting
+        loss = (loss1 + loss2) / 2 + kl_loss
+        # Use predictions from first forward pass
+        return loss, corr_probs1
     elif args.model_type == "dkt":
         y = model(batch["kc_ids_flat"], batch["labels_flat"])
         y = select_flat_baseline_out_vectors(y, batch, False)

@@ -23,7 +23,7 @@ class DKTSem(nn.Module):
         self.dropout_layer = nn.Dropout(dropout)
         self.out_layer = nn.Linear(emb_size, text_emb_size)
 
-    def forward(self, batch):
+    def forward(self, batch, use_rdrop=False):
         # Get input vectors from transformed text embeddings and correctness embedding
         if ALT_ARCH:
             xemb = self.input_encoder(batch["turn_embs"])
@@ -36,9 +36,24 @@ class DKTSem(nn.Module):
 
         # Run embeddings through LSTM, compute bilinear with KC embedding matrix to get predictions
         h, _ = self.lstm_layer(xemb)
-        h = self.dropout_layer(h)
-        h_text_space = self.out_layer(h)
-        y = torch.bmm(h_text_space, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
-        y = torch.sigmoid(y) # B x L x K(all)
-
-        return y
+        
+        if use_rdrop:
+            # First forward pass
+            h1 = self.dropout_layer(h)
+            h_text_space1 = self.out_layer(h1)
+            y1 = torch.bmm(h_text_space1, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
+            y1 = torch.sigmoid(y1)
+            
+            # Second forward pass with different dropout mask
+            h2 = self.dropout_layer(h)
+            h_text_space2 = self.out_layer(h2)
+            y2 = torch.bmm(h_text_space2, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
+            y2 = torch.sigmoid(y2)
+            
+            return y1, y2
+        else:
+            h = self.dropout_layer(h)
+            h_text_space = self.out_layer(h)
+            y = torch.bmm(h_text_space, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
+            y = torch.sigmoid(y) # B x L x K(all)
+            return y
