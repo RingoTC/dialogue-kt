@@ -434,6 +434,8 @@ def get_baseline_model(kc_dict: dict, kc_emb_matrix: torch.Tensor, args):
         return DKTMultiKC(num_kcs, emb_size).to(device)
     if args.model_type == "dkt-sem":
         return DKTSem(emb_size, kc_emb_matrix).to(device)
+    if args.model_type == "dkt-sem-rdrop":
+        return DKTSem(emb_size, kc_emb_matrix).to(device)
     if args.model_type == "dkt":
         return DKT(num_kcs, emb_size).to(device)
     if args.model_type == "akt":
@@ -459,7 +461,7 @@ def compute_baseline_loss(model, batch, args):
     if args.model_type == "dkt-multi":
         y = model(batch)
         return get_baseline_loss(y, batch, args)
-    elif args.model_type == "dkt-sem":
+    elif args.model_type == "dkt-sem-rdrop":
         # Get two forward passes with different dropout masks
         y1, y2 = model(batch, use_rdrop=True)
         # Get BCE loss for both passes
@@ -479,6 +481,8 @@ def compute_baseline_loss(model, batch, args):
         loss = (loss1 + loss2) / 2 + kl_loss
         # Use predictions from first forward pass
         return loss, corr_probs1
+    elif args.model_type == "dkt-sem":
+        return DKTSem(emb_size, kc_emb_matrix).to(device)
     elif args.model_type == "dkt":
         y = model(batch["kc_ids_flat"], batch["labels_flat"])
         y = select_flat_baseline_out_vectors(y, batch, False)
