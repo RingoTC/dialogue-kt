@@ -99,7 +99,8 @@ def crossval(args, fn):
     if len(avg) > 6:
         metric_names += ["Acc (Final)", "AUC (Final)", "Prec (Final)", "Rec (Final)", "F1 (Final)"]
     results = [
-        f"(pm {std[idx]:.2f})"
+        f"{metric}: ${avg[idx]:.2f}_{{\\pm {std[idx]:.2f}}}$" for idx, metric in
+        enumerate(metric_names)
     ]
     result_str = "\n".join(results)
     print(result_str)
