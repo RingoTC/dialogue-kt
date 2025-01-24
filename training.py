@@ -432,9 +432,7 @@ def get_baseline_model(kc_dict: dict, kc_emb_matrix: torch.Tensor, args):
     n_blocks = 4 # For layered models
     if args.model_type == "dkt-multi":
         return DKTMultiKC(num_kcs, emb_size).to(device)
-    if args.model_type == "dkt-sem":
-        return DKTSem(emb_size, kc_emb_matrix).to(device)
-    if args.model_type == "dkt-sem-rdrop":
+    if args.model_type == "dkt-sem" or args.model_type == "dkt-sem-rdrop":
         return DKTSem(emb_size, kc_emb_matrix).to(device)
     if args.model_type == "dkt":
         return DKT(num_kcs, emb_size).to(device)
@@ -482,7 +480,8 @@ def compute_baseline_loss(model, batch, args):
         # Use predictions from first forward pass
         return loss, corr_probs1
     elif args.model_type == "dkt-sem":
-        return DKTSem(emb_size, kc_emb_matrix).to(device)
+        y = model(batch)
+        return get_baseline_loss(y, batch, args)
     elif args.model_type == "dkt":
         y = model(batch["kc_ids_flat"], batch["labels_flat"])
         y = select_flat_baseline_out_vectors(y, batch, False)
