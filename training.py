@@ -15,6 +15,7 @@ from sentence_transformers import SentenceTransformer
 from models.lm import get_model
 from models.dkt_multi_kc import DKTMultiKC
 from models.dkt_sem import DKTSem
+from models.dkt_sem_rdrop_attn import DKTSemRDropAttn
 from models.simplekt import simpleKT
 from data_loading import (load_annotated_data, get_kc_result_filename, get_qual_result_filename, get_default_fold, load_kc_dict,
                           correct_to_str, standards_to_str, get_model_file_suffix, COMTA_SUBJECTS)
@@ -36,6 +37,16 @@ def apply_defaults(args):
             "grad_accum_steps": 64,
             "r": 16,
             "lora_alpha": 16
+        }
+    elif args.model_type == "dkt-sem-rdrop":
+        defaults = {
+            "epochs": 100,
+            "lr": 0.002,
+            "wd": 1e-2,
+            "gc": 0,
+            "batch_size": 64,
+            "grad_accum_steps": 1,
+            "emb_size": 256
         }
     else:
         defaults = {
@@ -197,7 +208,7 @@ def get_lmkt_loss_packed(model, batch, true_token, false_token, args):
     # Invert attention mask
     attention_mask = batch["attention_mask"]
     min_dtype = torch.finfo(model.dtype).min
-    attention_mask[attention_mask == 0] = min_dtype
+    attention_mask[attentiozn_mask == 0] = min_dtype
     attention_mask[attention_mask == 1] = 0
     attention_mask = attention_mask.type(model.dtype)
     # Get logits at last token of each sequence
@@ -389,7 +400,7 @@ def test_lmkt(args, fold):
 
 # ===== Baselines =====
 
-BASELINE_MODELS = ["dkt-multi", "dkt-sem","dkt-sem-rdrop", "dkt", "akt", "dkvmn", "saint", "simplekt"]
+BASELINE_MODELS = ["dkt-multi", "dkt-sem","dkt-sem-rdrop", "dkt-sem-rdrop-attn", "dkt", "akt", "dkvmn", "saint", "simplekt"]
 NON_FLAT_KC_ARCH = ["dkt-multi", "dkt-sem"]
 
 def select_flat_baseline_out_vectors(y: torch.Tensor, batch, shift_turn_end_idxs: bool):
@@ -434,6 +445,8 @@ def get_baseline_model(kc_dict: dict, kc_emb_matrix: torch.Tensor, args):
         return DKTMultiKC(num_kcs, emb_size).to(device)
     if args.model_type == "dkt-sem" or args.model_type == "dkt-sem-rdrop":
         return DKTSem(emb_size, kc_emb_matrix).to(device)
+    if args.model_type == "dkt-sem-rdrop-attn":
+        return DKTSemRDropAttn(emb_size, kc_emb_matrix).to(device)
     if args.model_type == "dkt":
         return DKT(num_kcs, emb_size).to(device)
     if args.model_type == "akt":
@@ -460,6 +473,26 @@ def compute_baseline_loss(model, batch, args):
         y = model(batch)
         return get_baseline_loss(y, batch, args)
     elif args.model_type == "dkt-sem-rdrop":
+        # Get two forward passes with different dropout masks
+        y1, y2 = model(batch, use_rdrop=True)
+        # Get BCE loss for both passes
+        loss1, corr_probs1 = get_baseline_loss(y1, batch, args)
+        loss2, corr_probs2 = get_baseline_loss(y2, batch, args)
+        # Compute KL divergence loss between the two predictions
+        kl_loss = torch.nn.functional.kl_div(
+            torch.log(y1.view(-1, y1.size(-1))),
+            y2.view(-1, y2.size(-1)),
+            reduction='batchmean'
+        ) + torch.nn.functional.kl_div(
+            torch.log(y2.view(-1, y2.size(-1))),
+            y1.view(-1, y1.size(-1)),
+            reduction='batchmean'
+        )
+        # Combine losses with equal weighting
+        loss = (loss1 + loss2) / 2 + kl_loss
+        # Use predictions from first forward pass
+        return loss, corr_probs1
+    elif args.model_type == "dkt-sem-rdrop-attn":
         # Get two forward passes with different dropout masks
         y1, y2 = model(batch, use_rdrop=True)
         # Get BCE loss for both passes
@@ -527,6 +560,9 @@ def train_baseline(args, fold):
     if args.model_type == "dkt-sem" or args.model_type == "dkt-sem-rdrop":
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
+    elif args.model_type == "dkt-sem-rdrop-attn":
+        sbert_model = SentenceTransformer("all-mpnet-base-v2")
+        kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:
         sbert_model = None
         kc_emb_matrix = None
@@ -589,6 +625,9 @@ def test_baseline(args, fold):
     # Load KC dictionary and optionally text embeddings
     kc_dict = load_kc_dict(args)
     if args.model_type == "dkt-sem" or args.model_type == "dkt-sem-rdrop":
+        sbert_model = SentenceTransformer("all-mpnet-base-v2")
+        kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
+    elif args.model_type == "dkt-sem-rdrop-attn":
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:
