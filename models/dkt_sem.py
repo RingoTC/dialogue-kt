@@ -38,6 +38,7 @@ class DKTSem(nn.Module):
             # First forward pass with dropout applied on xemb
             xemb1 = self.dropout_layer(xemb)
             h1, _ = self.lstm_layer(xemb1)
+            h1 = self.dropout_layer(h1)
             h_text_space1 = self.out_layer(h1)
             y1 = torch.bmm(h_text_space1, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
             y1 = torch.sigmoid(y1)
@@ -45,6 +46,7 @@ class DKTSem(nn.Module):
             # Second forward pass with different dropout mask on xemb
             xemb2 = self.dropout_layer(xemb)
             h2, _ = self.lstm_layer(xemb2)
+            h2 = self.dropout_layer(h2)
             h_text_space2 = self.out_layer(h2)
             y2 = torch.bmm(h_text_space2, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
             y2 = torch.sigmoid(y2)
