@@ -84,9 +84,9 @@ class DKTSemRDropAttn(nn.Module):
         query = self.query_transform(batch["kc_embs"])  # [batch_size, seq_len, emb_size]
         key = self.key_transform(self.kc_emb_matrix)  # [num_kcs, emb_size]
 
-        # 归一化 Query 和 Key
-        query = F.normalize(query, dim=-1)  # [batch_size, seq_len, emb_size]
-        key = F.normalize(key, dim=-1)  # [num_kcs, emb_size]
+        # # 归一化 Query 和 Key
+        # query = F.normalize(query, dim=-1)  # [batch_size, seq_len, emb_size]
+        # key = F.normalize(key, dim=-1)  # [num_kcs, emb_size]
 
         # 计算注意力分数 (scaled dot-product attention)
         attention_scores = torch.bmm(query, key.T.unsqueeze(0).repeat(batch["kc_embs"].shape[0], 1, 1))  # [batch_size, seq_len, num_kcs]

@@ -34,22 +34,21 @@ class DKTSem(nn.Module):
             correctness_emb = self.correctness_encoder(torch.clip(batch["labels"], min=0))
             xemb = text_emb + correctness_emb
 
-        # Run embeddings through LSTM, compute bilinear with KC embedding matrix to get predictions
-        h, _ = self.lstm_layer(xemb)
-        
         if use_rdrop:
-            # First forward pass
-            h1 = self.dropout_layer(h)
+            # First forward pass with dropout applied on xemb
+            xemb1 = self.dropout_layer(xemb)
+            h1, _ = self.lstm_layer(xemb1)
             h_text_space1 = self.out_layer(h1)
             y1 = torch.bmm(h_text_space1, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
             y1 = torch.sigmoid(y1)
-            
-            # Second forward pass with different dropout mask
-            h2 = self.dropout_layer(h)
+
+            # Second forward pass with different dropout mask on xemb
+            xemb2 = self.dropout_layer(xemb)
+            h2, _ = self.lstm_layer(xemb2)
             h_text_space2 = self.out_layer(h2)
             y2 = torch.bmm(h_text_space2, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
             y2 = torch.sigmoid(y2)
-            
+
             return y1, y2
         else:
             h = self.dropout_layer(h)
