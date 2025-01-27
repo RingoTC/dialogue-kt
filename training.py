@@ -16,6 +16,7 @@ from models.lm import get_model
 from models.dkt_multi_kc import DKTMultiKC
 from models.dkt_sem import DKTSem
 from models.dkt_sem_rdrop_attn import DKTSemRDropAttn
+from models.dkt_sem_cl import DKTSemCL
 from models.simplekt import simpleKT
 from data_loading import (load_annotated_data, get_kc_result_filename, get_qual_result_filename, get_default_fold, load_kc_dict,
                           correct_to_str, standards_to_str, get_model_file_suffix, COMTA_SUBJECTS)
@@ -447,6 +448,8 @@ def get_baseline_model(kc_dict: dict, kc_emb_matrix: torch.Tensor, args):
         return DKTSem(emb_size, kc_emb_matrix).to(device)
     if args.model_type == "dkt-sem-rdrop-attn":
         return DKTSemRDropAttn(emb_size, kc_emb_matrix).to(device)
+    if args.model_type == "dkt-sem-cl":
+        return DKTSemCL(emb_size, kc_emb_matrix).to(device)
     if args.model_type == "dkt":
         return DKT(num_kcs, emb_size).to(device)
     if args.model_type == "akt":

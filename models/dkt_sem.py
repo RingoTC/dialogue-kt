@@ -53,8 +53,11 @@ class DKTSem(nn.Module):
 
             return y1, y2
         else:
-            h = self.dropout_layer(h)
+            # Add missing LSTM and dropout operations for the `else` branch
+            xemb = self.dropout_layer(xemb)  # Apply dropout
+            h, _ = self.lstm_layer(xemb)    # Pass through LSTM
+            h = self.dropout_layer(h)       # Apply dropout again
             h_text_space = self.out_layer(h)
             y = torch.bmm(h_text_space, self.kc_emb_matrix.T.unsqueeze(0).expand(batch["labels"].shape[0], -1, -1))
-            y = torch.sigmoid(y) # B x L x K(all)
+            y = torch.sigmoid(y)  # B x L x K(all)
             return y
