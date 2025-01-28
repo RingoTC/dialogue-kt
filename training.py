@@ -39,16 +39,6 @@ def apply_defaults(args):
             "r": 16,
             "lora_alpha": 16
         }
-    elif args.model_type == "dkt-sem-rdrop":
-        defaults = {
-            "epochs": 100,
-            "lr": 0.002,
-            "wd": 1e-2,
-            "gc": 0,
-            "batch_size": 64,
-            "grad_accum_steps": 1,
-            "emb_size": 256
-        }
     else:
         defaults = {
             "epochs": 100,
@@ -57,7 +47,8 @@ def apply_defaults(args):
             "gc": 0,
             "batch_size": 64,
             "grad_accum_steps": 1,
-            "emb_size": 64
+            "emb_size": 64,
+            "cl_weight": 0.5
         }
     for key, val in defaults.items():
         if getattr(args, key, None) is None:
@@ -79,6 +70,16 @@ def hyperparam_sweep(args):
                 args.lora_alpha = r
                 model_names.append(args.model_name)
                 results.append(train(args))
+    elif args.model_type == "dkt-sem-cl":
+        for lr in [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]:
+            for emb_size in [8, 16, 32, 64, 128, 256, 512]:
+                for cl_weight in [0.1, 0.2, 0.5, 0.8]:
+                    args.model_name = f"hpsweep_{args.dataset}_{args.tag_src}_dkt-sem-cl_agg{args.agg}_lr{lr}_es{emb_size}_cl{cl_weight}"
+                    args.lr = lr
+                    args.emb_size = emb_size
+                    args.cl_weight = cl_weight
+                    model_names.append(args.model_name)
+                    results.append(train(args))
     else:
         for lr in [1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]:
             for emb_size in [8, 16, 32, 64, 128, 256, 512]:
@@ -401,7 +402,7 @@ def test_lmkt(args, fold):
 
 # ===== Baselines =====
 
-BASELINE_MODELS = ["dkt-multi", "dkt-sem","dkt-sem-rdrop", "dkt-sem-rdrop-attn", "dkt", "akt", "dkvmn", "saint", "simplekt"]
+BASELINE_MODELS = ["dkt-multi", "dkt-sem","dkt-sem-rdrop", "dkt-sem-rdrop-attn","dkt-sem-cl", "dkt", "akt", "dkvmn", "saint", "simplekt"]
 NON_FLAT_KC_ARCH = ["dkt-multi", "dkt-sem"]
 
 def select_flat_baseline_out_vectors(y: torch.Tensor, batch, shift_turn_end_idxs: bool):
@@ -515,6 +516,28 @@ def compute_baseline_loss(model, batch, args):
         loss = (loss1 + loss2) / 2 + kl_loss
         # Use predictions from first forward pass
         return loss, corr_probs1
+    elif args.model_type == "dkt-sem-cl":
+        # 获取正例对
+        # forward函数返回的是(xemb1, y1), (xemb2, y2)，需要修改
+        (_, y1), (_, y2) = model(batch, use_rdrop=True)
+        
+        # 获取负例(随机打乱batch中的样本)
+        neg_idx = torch.randperm(y1.size(0))
+        neg_y = y1[neg_idx]
+        
+        # 计算对比损失
+        cl_loss = model.contrastive_loss(y1, y2, neg_y)
+        
+        # 计算原始任务损失
+        task_loss1, corr_probs1 = get_baseline_loss(y1, batch, args)
+        task_loss2, corr_probs2 = get_baseline_loss(y2, batch, args)
+        task_loss = (task_loss1 + task_loss2) / 2
+        
+        # 组合损失
+        #loss = task_loss + args.cl_weight * cl_loss
+        loss = task_loss + args.cl_weight * cl_loss
+
+        return loss, corr_probs1
     elif args.model_type == "dkt-sem":
         y = model(batch)
         return get_baseline_loss(y, batch, args)
@@ -554,16 +577,12 @@ def compute_kc_emb_matrix(sbert_model: SentenceTransformer, kc_dict: dict):
     kcs = [kv[0] for kv in sorted(kc_dict.items(), key=lambda kv: kv[1])]
     kc_emb_matrix = sbert_model.encode(kcs, convert_to_tensor=True)
     return kc_emb_matrix
-
 def train_baseline(args, fold):
     assert args.model_type in BASELINE_MODELS
 
     # Load KC dictionary and optionally text embeddings
     kc_dict = load_kc_dict(args)
-    if args.model_type == "dkt-sem" or args.model_type == "dkt-sem-rdrop":
-        sbert_model = SentenceTransformer("all-mpnet-base-v2")
-        kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
-    elif args.model_type == "dkt-sem-rdrop-attn":
+    if args.model_type in ["dkt-sem", "dkt-sem-rdrop", "dkt-sem-rdrop-attn", "dkt-sem-cl"]:
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:
@@ -573,49 +592,94 @@ def train_baseline(args, fold):
     # Create model
     model = get_baseline_model(kc_dict, kc_emb_matrix, args)
 
-    # Load and split dataset, annotated with correctness and KCs
+    # Load and split dataset
     train_df, val_df, _ = load_annotated_data(args, fold)
     if args.debug:
         train_df = train_df[:2]
         val_df = val_df[:2]
-        print(train_df.iloc[0])
-        print(val_df.iloc[0])
-    flatten_kcs = args.model_type not in NON_FLAT_KC_ARCH # Flatten KCs in sequence for architectures that don't support multi-KCs
+    
+    flatten_kcs = args.model_type not in NON_FLAT_KC_ARCH
     train_dataset = DKTDataset(train_df, kc_dict, kc_emb_matrix, sbert_model)
     val_dataset = DKTDataset(val_df, kc_dict, kc_emb_matrix, sbert_model)
     collator = DKTCollator(flatten_kcs)
     train_dataloader = get_dataloader(train_dataset, collator, args.batch_size, True)
     val_dataloader = get_dataloader(val_dataset, collator, args.batch_size, False)
 
-    # Do training loop
+    # Training loop
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     best_val_loss = None
+    
     for epoch in range(args.epochs):
         print(f"Epoch {epoch + 1}")
         total_train_loss = 0
+        total_train_task_loss = 0
+        total_train_cl_loss = 0
         total_val_loss = 0
 
         model.train()
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc="Training")):
-            loss, _ = compute_baseline_loss(model, batch, args)
+            # 对比学习部分
+            if args.model_type == "dkt-sem-cl":
+                # 获取两次前向传播的特征表示和预测
+                (xemb1, y1), (xemb2, y2) = model(batch, use_rdrop=True)
+                
+                # 生成负例(从batch中随机采样)
+                neg_idx = torch.randperm(xemb1.size(0))
+                neg_xemb = xemb1[neg_idx]
+                
+                # 计算对比损失
+                cl_loss = model.contrastive_loss(xemb1, xemb2, neg_xemb)
+                
+                # 计算任务损失
+                task_loss1, _ = get_baseline_loss(y1, batch, args)
+                task_loss2, _ = get_baseline_loss(y2, batch, args)
+                task_loss = (task_loss1 + task_loss2) / 2
+                
+                # 组合损失
+                #loss = task_loss + args.cl_weight * cl_loss
+                loss = task_loss + args.cl_weight * cl_loss
+
+                # 记录不同损失
+                total_train_task_loss += task_loss.item()
+                total_train_cl_loss += cl_loss.item()
+            else:
+                # 其他模型的常规训练
+                loss, _ = compute_baseline_loss(model, batch, args)
+            
             total_train_loss += loss.item()
+            
+            # 反向传播
             loss = loss / args.grad_accum_steps
             loss.backward()
+            
             if (batch_idx + 1) % args.grad_accum_steps == 0 or batch_idx == len(train_dataloader) - 1:
                 if args.gc:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.gc)
                 optimizer.step()
                 optimizer.zero_grad()
 
+        # 验证
         with torch.no_grad():
             model.eval()
             for batch in tqdm(val_dataloader, desc="Validating"):
-                loss, _ = compute_baseline_loss(model, batch, args)
+                if args.model_type == "dkt-sem-cl":
+                    (xemb1, y1), _ = model(batch)
+                    loss, _ = get_baseline_loss(y1, batch, args)
+                else:
+                    loss, _ = compute_baseline_loss(model, batch, args)
                 total_val_loss += loss.item()
 
+        # 打印训练信息
         avg_train_loss = total_train_loss / len(train_dataloader)
         avg_val_loss = total_val_loss / len(val_dataloader)
+        
         print(f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        if args.model_type == "dkt-sem-cl":
+            avg_train_task_loss = total_train_task_loss / len(train_dataloader)
+            avg_train_cl_loss = total_train_cl_loss / len(train_dataloader)
+            print(f"Train Task Loss: {avg_train_task_loss:.4f}, Train CL Loss: {avg_train_cl_loss:.4f}, CL Weight: {args.cl_weight:.4f}")
+
+        # 保存最佳模型
         if not best_val_loss or avg_val_loss < best_val_loss:
             print("Best! Saving model...")
             model_name = args.model_name + (f"_{fold}" if fold else "") + ".pt"
@@ -631,6 +695,9 @@ def test_baseline(args, fold):
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     elif args.model_type == "dkt-sem-rdrop-attn":
+        sbert_model = SentenceTransformer("all-mpnet-base-v2")
+        kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
+    elif args.model_type == "dkt-sem-cl":
         sbert_model = SentenceTransformer("all-mpnet-base-v2")
         kc_emb_matrix = compute_kc_emb_matrix(sbert_model, kc_dict)
     else:

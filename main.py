@@ -34,6 +34,8 @@ def main():
     parser_train.add_argument("--optim", type=str, choices=["adamw", "adafactor"], default="adamw", help="Optimizer")
     parser_train.add_argument("--pt_model_name", type=str, help="Name of pre-trained model to initialize weights from")
     parser_train.add_argument("--hyperparam_sweep", action="store_true", help="Run a hyperparameter sweep experiment")
+    # cl_weight
+    parser_train.add_argument("--cl_weight", type=float, help="Contrastive loss weight")
 
     parser_test = subparsers.add_parser("test", help="Test KT model")
     parser_test.set_defaults(func=test)

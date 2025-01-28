@@ -15,7 +15,24 @@
                 "comta",
                 "--crossval",
                 "--model_type",
-                "dkt-sem-rdrop-attn",
+                "dkt-sem-cl",
+                "--model_name",
+                "dkt-sem-rdrop-attn_comta"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "dkt-sem",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py", // 指定 Python 脚本路径
+            "args": [
+                "train",
+                "--dataset",
+                "comta",
+                "--crossval",
+                "--model_type",
+                "dkt-sem",
                 "--model_name",
                 "dkt-sem-rdrop-attn_comta"
             ],
